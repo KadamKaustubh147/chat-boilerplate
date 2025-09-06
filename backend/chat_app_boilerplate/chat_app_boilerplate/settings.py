@@ -45,6 +45,8 @@ INSTALLED_APPS = [
     'djoser',
     'corsheaders',
     'accounts',
+    'channels',
+    'chat'
 ]
 
 MIDDLEWARE = [
@@ -89,7 +91,8 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'chat_app_boilerplate.wsgi.application'
+# WSGI_APPLICATION = 'chat_app_boilerplate.wsgi.application'
+ASGI_APPLICATION = 'chat_app_boilerplate.asgi.application'
 
 
 # Database
