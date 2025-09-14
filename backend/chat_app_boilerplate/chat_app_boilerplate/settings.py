@@ -196,16 +196,23 @@ GOOGLE_CLIENT_SECRET=config("GOOGLE_CLIENT_SECRET")
 
 GOOGLE_REDIRECT_URI=config("GOOGLE_REDIRECT_URI")
 
+# CHANNEL_LAYERS = {
+#     "default": {
+#         "BACKEND": "channels_redis.core.RedisChannelLayer",
+#         "CONFIG": {
+#             "hosts": [
+#                 {
+#                     "address": config("REDIS"),
+#                     "ssl": True,
+#                 }
+#             ],
+#         },
+#     },
+# }
+
 CHANNEL_LAYERS = {
     "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [
-                {
-                    "address": config("REDIS"),
-                    "ssl": True,
-                }
-            ],
-        },
-    },
+        "BACKEND": "channels.layers.InMemoryChannelLayer"
+    }
 }
+

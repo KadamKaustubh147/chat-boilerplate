@@ -1,10 +1,77 @@
+import { useEffect, useState } from "react";
 import ChatMessage from "../components/ChatMessage";
 import { IoIosAddCircle } from "react-icons/io";
 import Search from "../components/Search";
-import Logo from "../assets/logo_evolvium.png"
+import Logo from "../assets/logo_evolvium.png";
 import Contact from "../components/Contact";
+import ChatInput from "../components/ChatInput";
 
 const Chat = () => {
+  const username = "kaustubh";
+  const [messages, setMessages] = useState<
+    { text: string; who: "me" | "you"; time: string }[]
+  >([]);
+  const [socket, setSocket] = useState<WebSocket | null>(null);
+
+  // Create WebSocket connection
+  // on username change we re-render the component
+  useEffect(() => {
+    const chatSocket = new WebSocket(
+      `ws://127.0.0.1:8000/ws/personal/${username}/`
+    );
+
+    chatSocket.onopen = () => {
+      console.log("✅ WebSocket connected");
+    };
+
+    chatSocket.onmessage = (event) => {
+      // JSON.parse --> converts JSON to JS object
+
+
+      // so event is already a JS object but data which is a attribute is a JSON thingy therefore we parse that
+      const data = JSON.parse(event.data);
+      console.log("📩 Received:", data);
+
+      setMessages((prev) => [
+        ...prev,
+        { text: data.message, who: "you", time: new Date().toLocaleTimeString() },
+      ]);
+    };
+
+    chatSocket.onclose = () => {
+      console.log("❌ WebSocket closed");
+    };
+
+    setSocket(chatSocket);
+
+    // Cleanup on unmount
+    return () => {
+      chatSocket.close();
+    };
+  }, [username]);
+
+  // Send message
+  const handleSend = (message: string) => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      console.error("⚠️ WebSocket not connected");
+      return;
+    }
+
+    const data = {
+      message,
+      sender: username,
+      time: new Date().toLocaleTimeString(),
+    };
+
+    // Send the message to the server --> centralised message distributor will distribute it
+    socket.send(JSON.stringify(data));
+
+    setMessages((prev) => [
+      ...prev,
+      { text: message, who: "me", time: new Date().toLocaleTimeString() },
+    ]);
+  };
+
   return (
     // container
     <div className="w-full flex bg-black h-screen">
@@ -26,22 +93,13 @@ const Chat = () => {
         <div className="flex-1 flex flex-col overflow-y-auto">
           <h5 className="text-white ml-2 text-2xl mb-2">Guild</h5>
 
-          {/* guild pinned chat */}
           <div className="pl-2">
             <Contact />
-
           </div>
 
           <hr className="text-white w-11/12 mb-2" />
 
-          {/* scrollable list */}
           <div className="flex-1 min-h-0 overflow-y-auto pr-3 pl-2 space-y-1 scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-none hover:scrollbar-thin">
-            <Contact />
-            <Contact />
-            <Contact />
-            <Contact />
-            <Contact />
-            <Contact />
             <Contact />
             <Contact />
             <Contact />
@@ -51,52 +109,31 @@ const Chat = () => {
       </div>
 
       {/* right chat panel */}
-      <div className="flex-1 flex flex-col border-l border-gray-700 items-center">
-        {/* name of the person at the top with profile picture*/}
-        {/* the messages in the middle huge part */}
-        {/* The chatbox input field with send button */}
-
-        {/* all three a flex */}
-        {/* 1st is a strip */}
-        <div className="flex mt-4 self-start ml-4 items-center">
+      <div className="flex-1 flex flex-col border-l border-gray-700">
+        {/* 1. header strip */}
+        <div className="flex mt-4 ml-4 items-center">
           <img
             src="https://picsum.photos/400"
             alt="profile"
             className="w-10 h-10 rounded-full object-cover"
           />
           <span className="text-white pl-4">Anish</span>
-          {/* if guild show members in brief */}
         </div>
 
-        {/* chat messages */}
-        <div className="w-11/12 flex flex-col ">
-
-        <ChatMessage text="Buri" who="me" time="09:00PM" />
-        <ChatMessage text="buri buri zaemon ding ding ping ping" time="09:01PM" who="you" />
-        <ChatMessage text="Anish randika" time="10:30PM" who="me" />
-        <ChatMessage text="😭" time="10:31PM" who="you" />
-
-        <ChatMessage text="Bro did you finish the assignment?" time="10:45PM" who="me" />
-        <ChatMessage text="Not yet, I was gaming 😅" time="10:46PM" who="you" />
-        <ChatMessage text="Bruh, deadline is tomorrow 💀" time="10:47PM" who="me" />
-        <ChatMessage text="Relax, I’ll copy from you 😎" time="10:48PM" who="you" />
-        <ChatMessage text="No chance 😂" time="10:49PM" who="me" />
-
-        <ChatMessage text="Ok ok, send me at least Q2 solution 🙏" time="10:50PM" who="you" />
-        <ChatMessage text="Hmm… maybe after dinner 🍲" time="10:51PM" who="me" />
-        <ChatMessage text="Fine, I’ll wait 😤" time="10:52PM" who="you" />
-
-        <ChatMessage text="By the way, did you watch the new episode?" time="11:00PM" who="you" />
-        <ChatMessage text="Yes bro, that twist was insane 🔥" time="11:01PM" who="me" />
-        <ChatMessage text="Fr fr, can’t wait for next week" time="11:02PM" who="you" />
-        <ChatMessage text="Same here 👀" time="11:03PM" who="me" />
+        {/* 2. messages area */}
+        <div className="flex-1 w-11/12 mx-auto flex flex-col py-2 overflow-y-auto">
+          {messages.map((msg, i) => (
+            <ChatMessage key={i} text={msg.text} who={msg.who} time={msg.time} />
+          ))}
         </div>
 
-        {/* show messages + date + images */}
+        {/* 3. chat input fixed at bottom */}
+        <div className="w-full mx-auto mb-4 flex justify-center">
+          <ChatInput onSend={handleSend} />
+        </div>
       </div>
     </div>
   );
 };
 
 export default Chat;
-
