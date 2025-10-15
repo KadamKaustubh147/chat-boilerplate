@@ -1,11 +1,11 @@
-       
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
 from django.contrib.auth import get_user_model
 from .models import PersonalChat, Chat_Group, GroupMessage
 from django.db.models import Q, Max
-from django.db.models.functions import Greatest
+from django.core.exceptions import ValidationError
 
 User = get_user_model()
 
@@ -41,8 +41,13 @@ class GroupChatHistoryView(APIView):
 
     def get(self, request, group_name):
         """Get chat history for a group"""
+        from urllib.parse import unquote
+        
+        # Decode URL-encoded group name (e.g., "Kau%20ka%20guild" -> "Kau ka guild")
+        decoded_group_name = unquote(group_name)
+        
         try:
-            group = Chat_Group.objects.get(name=group_name)
+            group = Chat_Group.objects.get(name=decoded_group_name)
         except Chat_Group.DoesNotExist:
             return Response({"error": "Group not found"}, status=404)
 
@@ -117,3 +122,189 @@ class UserListView(APIView):
         contacts_data.sort(key=lambda x: (not x.get('hasConversation', False), x['name'].lower()))
         
         return Response(contacts_data)
+
+
+class GuildListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get list of all available guilds"""
+        guilds = Chat_Group.objects.all()
+        
+        data = []
+        for guild in guilds:
+            member_count = guild.members.count()
+            is_member = guild.members.filter(id=request.user.id).exists()
+            
+            guild_info = {
+                "id": guild.id,
+                "name": guild.name,
+                "description": guild.description or "No description",
+                "memberCount": member_count,
+                "maxMembers": guild.max_members,
+                "isFull": member_count >= guild.max_members,
+                "isMember": is_member,
+                "createdBy": guild.created_by.name if guild.created_by else "Unknown",
+                "createdAt": guild.created_at.isoformat(),
+            }
+            data.append(guild_info)
+        
+        return Response(data)
+
+    def post(self, request):
+        """Create a new guild"""
+        name = request.data.get('name')
+        description = request.data.get('description', '')
+        
+        if not name:
+            return Response({"error": "Guild name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if user is already in a guild
+        existing_guilds = Chat_Group.objects.filter(members=request.user)
+        if existing_guilds.exists():
+            return Response({
+                "error": f"You are already in guild: {existing_guilds.first().name}. Leave it first to create a new one."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if guild name already exists
+        if Chat_Group.objects.filter(name=name).exists():
+            return Response({"error": "Guild name already exists"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create guild
+        guild = Chat_Group.objects.create(
+            name=name,
+            description=description,
+            created_by=request.user
+        )
+        
+        # Add creator as first member
+        guild.members.add(request.user)
+        
+        return Response({
+            "message": "Guild created successfully",
+            "guild": {
+                "id": guild.id,
+                "name": guild.name,
+                "description": guild.description,
+                "memberCount": 1,
+                "maxMembers": guild.max_members,
+            }
+        }, status=status.HTTP_201_CREATED)
+
+
+class GuildDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, guild_id):
+        """Get guild details including members"""
+        try:
+            guild = Chat_Group.objects.get(id=guild_id)
+        except Chat_Group.DoesNotExist:
+            return Response({"error": "Guild not found"}, status=404)
+        
+        members = [{
+            "id": member.id,
+            "email": member.email,
+            "name": member.name,
+        } for member in guild.members.all()]
+        
+        return Response({
+            "id": guild.id,
+            "name": guild.name,
+            "description": guild.description,
+            "memberCount": guild.members.count(),
+            "maxMembers": guild.max_members,
+            "isMember": guild.members.filter(id=request.user.id).exists(),
+            "createdBy": guild.created_by.name if guild.created_by else "Unknown",
+            "members": members,
+        })
+
+
+class GuildJoinView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, guild_id):
+        """Join a guild"""
+        try:
+            guild = Chat_Group.objects.get(id=guild_id)
+        except Chat_Group.DoesNotExist:
+            return Response({"error": "Guild not found"}, status=404)
+        
+        # Check if already a member
+        if guild.members.filter(id=request.user.id).exists():
+            return Response({"error": "You are already a member of this guild"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            guild.add_member(request.user)
+            return Response({
+                "message": f"Successfully joined {guild.name}",
+                "guild": {
+                    "id": guild.id,
+                    "name": guild.name,
+                    "memberCount": guild.members.count(),
+                }
+            })
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class GuildLeaveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, guild_id):
+        """Leave a guild"""
+        try:
+            guild = Chat_Group.objects.get(id=guild_id)
+        except Chat_Group.DoesNotExist:
+            return Response({"error": "Guild not found"}, status=404)
+        
+        # Check if user is a member
+        if not guild.members.filter(id=request.user.id).exists():
+            return Response({"error": "You are not a member of this guild"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        guild.remove_member(request.user)
+        
+        # If no members left, delete the guild
+        if guild.members.count() == 0:
+            guild_name = guild.name
+            guild.delete()
+            return Response({"message": f"You left {guild_name}. Guild was deleted as it had no members."})
+        
+        return Response({
+            "message": f"Successfully left {guild.name}",
+            "guild": {
+                "id": guild.id,
+                "name": guild.name,
+                "memberCount": guild.members.count(),
+            }
+        })
+
+
+class MyGuildView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get the guild current user is in"""
+        guilds = Chat_Group.objects.filter(members=request.user)
+        
+        if not guilds.exists():
+            return Response({"guild": None, "message": "You are not in any guild"})
+        
+        guild = guilds.first()
+        members = [{
+            "id": member.id,
+            "email": member.email,
+            "name": member.name,
+        } for member in guild.members.all()]
+        
+        return Response({
+            "guild": {
+                "id": guild.id,
+                "name": guild.name,
+                "description": guild.description,
+                "memberCount": guild.members.count(),
+                "maxMembers": guild.max_members,
+                "createdBy": guild.created_by.name if guild.created_by else "Unknown",
+                "members": members,
+            }
+        })

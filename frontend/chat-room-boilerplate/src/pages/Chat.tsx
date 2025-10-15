@@ -5,6 +5,7 @@ import Logo from "../assets/logo_evolvium.png";
 import ChatInput from "../components/ChatInput";
 import { AuthContext } from "../context/AuthContext-http-jwt";
 import api from "../AxiosInstance";
+import GuildSection from "../components/GuildSection";
 
 interface Message {
   text: string;
@@ -24,11 +25,26 @@ interface ContactType {
   hasConversation?: boolean;
 }
 
+interface Guild {
+  id: number;
+  name: string;
+  description: string;
+  memberCount: number;
+  maxMembers: number;
+  isMember: boolean;
+  createdBy: string;
+  members?: Array<{ id: number; email: string; name: string }>;
+}
+
+type ChatType = "personal" | "guild";
+
 const Chat = () => {
   const { user } = useContext(AuthContext)!;
   const [messages, setMessages] = useState<Message[]>([]);
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [selectedContact, setSelectedContact] = useState<ContactType | null>(null);
+  const [selectedGuild, setSelectedGuild] = useState<Guild | null>(null);
+  const [chatType, setChatType] = useState<ChatType>("personal");
   const [contacts, setContacts] = useState<ContactType[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [connectionStatus, setConnectionStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
@@ -64,10 +80,24 @@ const Chat = () => {
     }
   }, [user]);
 
-  // WebSocket connection
+  // WebSocket connection for both personal and guild chat
   useEffect(() => {
-    if (!selectedContact || !user) {
-      console.log("⏭️ Skipping WebSocket connection - no contact selected or no user");
+    if (!user) {
+      console.log("⏭️ Skipping WebSocket connection - no user");
+      return;
+    }
+
+    // Determine what to connect to
+    let wsUrl = "";
+    
+    if (chatType === "personal" && selectedContact) {
+      wsUrl = `ws://localhost:8000/ws/personal/${selectedContact.email}/`;
+    } else if (chatType === "guild" && selectedGuild) {
+      // Encode guild name for URL - replace spaces with underscores or encode properly
+      const encodedGuildName = encodeURIComponent(selectedGuild.name);
+      wsUrl = `ws://localhost:8000/ws/group/${encodedGuildName}/`;
+    } else {
+      console.log("⏭️ Skipping WebSocket connection - no contact/guild selected");
       return;
     }
 
@@ -79,17 +109,14 @@ const Chat = () => {
 
     setConnectionStatus("connecting");
 
-    // Create new WebSocket connection - using localhost (not 127.0.0.1)
-    const wsUrl = `ws://localhost:8000/ws/personal/${selectedContact.email}/`;
-    
     console.log("🔌 Attempting to connect to:", wsUrl);
     console.log("👤 Current user:", user.email);
-    console.log("👥 Selected contact:", selectedContact.email);
+    console.log("📡 Chat type:", chatType);
     
     const chatSocket = new WebSocket(wsUrl);
 
     chatSocket.onopen = () => {
-      console.log("✅ WebSocket connected to:", selectedContact.email);
+      console.log("✅ WebSocket connected");
       setConnectionStatus("connected");
     };
 
@@ -114,6 +141,11 @@ const Chat = () => {
           console.log("➕ Adding message to state:", newMessage);
           return [...prev, newMessage];
         });
+
+        // Refresh contacts when new message arrives (only for personal chat)
+        if (chatType === "personal") {
+          fetchContacts();
+        }
       } catch (error) {
         console.error("❌ Error parsing message:", error);
       }
@@ -132,19 +164,23 @@ const Chat = () => {
     setSocket(chatSocket);
 
     // Load message history
-    loadMessageHistory(selectedContact.email);
+    if (chatType === "personal" && selectedContact) {
+      loadPersonalMessageHistory(selectedContact.email);
+    } else if (chatType === "guild" && selectedGuild) {
+      loadGuildMessageHistory(selectedGuild.name);
+    }
 
-    // Cleanup on unmount or contact change
+    // Cleanup on unmount or contact/guild change
     return () => {
       console.log("🧹 Cleanup: closing WebSocket");
       chatSocket.close();
     };
-  }, [selectedContact, user]);
+  }, [selectedContact, selectedGuild, chatType, user]);
 
-  // Load message history from backend
-  const loadMessageHistory = async (contactEmail: string) => {
+  // Load personal message history from backend
+  const loadPersonalMessageHistory = async (contactEmail: string) => {
     try {
-      console.log("📜 Loading message history with:", contactEmail);
+      console.log("📜 Loading personal message history with:", contactEmail);
       const response = await api.get(`/chat/messages/${contactEmail}/`);
       console.log("📜 Message history response:", response.data);
       
@@ -161,16 +197,39 @@ const Chat = () => {
       setMessages(history);
     } catch (error) {
       console.error("❌ Failed to load message history:", error);
-      // If endpoint doesn't exist yet, start with empty messages
       setMessages([]);
     }
   };
 
-  // Send message
+  // Load guild message history from backend
+  const loadGuildMessageHistory = async (guildName: string) => {
+    try {
+      console.log("📜 Loading guild message history for:", guildName);
+      const response = await api.get(`/chat/group/${guildName}/messages/`);
+      console.log("📜 Guild history response:", response.data);
+      
+      const history = response.data.map((msg: any) => ({
+        text: msg.message,
+        who: msg.sender === user?.email ? "me" : "you",
+        time: new Date(msg.timestamp).toLocaleTimeString([], { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }),
+        sender: msg.sender,
+        sender_name: msg.sender_name,
+      }));
+      setMessages(history);
+    } catch (error) {
+      console.error("❌ Failed to load guild history:", error);
+      setMessages([]);
+    }
+  };
+
+  // Send message (works for both personal and guild)
   const handleSend = (message: string) => {
     console.log("📤 Attempting to send message:", message);
     console.log("🔌 WebSocket state:", socket?.readyState);
-    console.log("🔌 WebSocket OPEN constant:", WebSocket.OPEN);
+    console.log("📡 Chat type:", chatType);
 
     if (!socket) {
       console.error("⚠️ WebSocket is null");
@@ -221,11 +280,22 @@ const Chat = () => {
     }
   };
 
-  // Handle contact selection
+  // Handle contact selection (personal chat)
   const handleContactSelect = (contact: ContactType) => {
     console.log("👤 Selected contact:", contact);
     setSelectedContact(contact);
-    setMessages([]); // Clear messages when switching contacts
+    setSelectedGuild(null);
+    setChatType("personal");
+    setMessages([]);
+  };
+
+  // Handle guild selection
+  const handleGuildSelect = (guild: Guild) => {
+    console.log("🏰 Selected guild:", guild);
+    setSelectedGuild(guild);
+    setSelectedContact(null);
+    setChatType("guild");
+    setMessages([]);
   };
 
   // Filter contacts based on search
@@ -233,6 +303,25 @@ const Chat = () => {
     contact.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     contact.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Get current chat display name
+  const getCurrentChatName = () => {
+    if (chatType === "personal" && selectedContact) {
+      return selectedContact.name;
+    } else if (chatType === "guild" && selectedGuild) {
+      return selectedGuild.name;
+    }
+    return "";
+  };
+
+  const getCurrentChatSubtitle = () => {
+    if (chatType === "personal" && selectedContact) {
+      return selectedContact.email;
+    } else if (chatType === "guild" && selectedGuild) {
+      return `${selectedGuild.memberCount} members`;
+    }
+    return "";
+  };
 
   return (
     <div className="w-full flex bg-black h-screen">
@@ -260,8 +349,17 @@ const Chat = () => {
           <IoIosAddCircle className="text-4xl text-white cursor-pointer" />
         </div>
 
+        {/* Guild Section */}
+        <GuildSection 
+          onGuildSelect={handleGuildSelect}
+          selectedGuild={selectedGuild}
+        />
+
+        <hr className="text-white w-11/12 mb-2" />
+
         {/* Contacts list */}
         <div className="flex-1 min-h-0 overflow-y-auto pr-3 pl-2 space-y-1 scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-none hover:scrollbar-thin">
+          <h5 className="text-white text-xl mb-2 font-semibold">Direct Messages</h5>
           {filteredContacts.length === 0 ? (
             <p className="text-gray-400 text-center mt-4">No contacts found</p>
           ) : (
@@ -270,7 +368,7 @@ const Chat = () => {
                 key={contact.email}
                 onClick={() => handleContactSelect(contact)}
                 className={`flex w-full rounded-2xl text-white justify-between gap-3 cursor-pointer select-none hover:bg-[#242121] min-h-[9.5vh] px-2 py-2 ${
-                  selectedContact?.email === contact.email ? "bg-[#2a2727]" : ""
+                  chatType === "personal" && selectedContact?.email === contact.email ? "bg-[#2a2727]" : ""
                 }`}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -299,18 +397,46 @@ const Chat = () => {
 
       {/* Right chat panel */}
       <div className="flex-1 flex flex-col">
-        {selectedContact ? (
+        {(selectedContact || selectedGuild) ? (
           <>
             {/* Header strip */}
-            <div className="flex mt-4 ml-4 items-center border-b border-gray-700 pb-4">
-              <img
-                src={`https://ui-avatars.com/api/?name=${selectedContact.name}&background=random`}
-                alt="profile"
-                className="w-10 h-10 rounded-full object-cover"
-              />
+            <div className={`flex mt-4 ml-4 items-center border-b pb-4 ${
+              chatType === "guild" 
+                ? "border-yellow-400/30 bg-gradient-to-r from-purple-900/20 to-blue-900/20" 
+                : "border-gray-700"
+            }`}>
+              {chatType === "guild" ? (
+                <div className="bg-gradient-to-br from-yellow-400 to-yellow-600 p-2 rounded-full">
+                  <img
+                    src={`https://ui-avatars.com/api/?name=${getCurrentChatName()}&background=6366f1&color=fff&bold=true`}
+                    alt="guild"
+                    className="w-10 h-10 rounded-full object-cover"
+                  />
+                </div>
+              ) : (
+                <img
+                  src={`https://ui-avatars.com/api/?name=${getCurrentChatName()}&background=random`}
+                  alt="profile"
+                  className="w-10 h-10 rounded-full object-cover"
+                />
+              )}
               <div className="flex flex-col ml-4">
-                <span className="text-white font-semibold">{selectedContact.name}</span>
-                <span className="text-gray-400 text-xs">{selectedContact.email}</span>
+                <div className="flex items-center gap-2">
+                  {chatType === "guild" && (
+                    <span className="text-yellow-400 text-sm">👑</span>
+                  )}
+                  <span className={`font-semibold ${
+                    chatType === "guild" ? "text-yellow-400" : "text-white"
+                  }`}>
+                    {getCurrentChatName()}
+                  </span>
+                  {chatType === "guild" && (
+                    <span className="bg-purple-600 text-white text-xs px-2 py-0.5 rounded-full font-bold">
+                      GUILD
+                    </span>
+                  )}
+                </div>
+                <span className="text-gray-400 text-xs">{getCurrentChatSubtitle()}</span>
               </div>
               
               {/* Connection Status Indicator */}
@@ -331,7 +457,9 @@ const Chat = () => {
             {/* Messages area */}
             <div className="flex-1 w-11/12 mx-auto flex flex-col py-4 overflow-y-auto scrollbar-thumb-gray-600 scrollbar-track-transparent hover:scrollbar-thumb-gray-500 scrollbar-thin">
               {messages.length === 0 ? (
-                <p className="text-gray-400 text-center mt-8">No messages yet. Start the conversation!</p>
+                <p className="text-gray-400 text-center mt-8">
+                  No messages yet. Start the conversation!
+                </p>
               ) : (
                 messages.map((msg, i) => (
                   <ChatMessage key={i} text={msg.text} who={msg.who} time={msg.time} />
@@ -348,8 +476,8 @@ const Chat = () => {
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center text-gray-400">
-              <p className="text-xl mb-2">Select a contact to start chatting</p>
-              <p className="text-sm">Choose from your contacts list</p>
+              <p className="text-xl mb-2">Select a contact or guild to start chatting</p>
+              <p className="text-sm">Choose from your contacts list or join a guild</p>
             </div>
           </div>
         )}

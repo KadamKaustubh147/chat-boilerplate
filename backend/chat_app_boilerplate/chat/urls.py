@@ -1,15 +1,29 @@
 from django.urls import path
-from .views import PersonalChatHistoryView, GroupChatHistoryView, UserListView
-from django.conf import settings
-from django.conf.urls.static import static
+from .views import (
+    PersonalChatHistoryView, 
+    GroupChatHistoryView, 
+    UserListView,
+    GuildListView,
+    GuildDetailView,
+    GuildJoinView,
+    GuildLeaveView,
+    MyGuildView,
+)
 
 urlpatterns = [
-    # Get chat history between current user and another user
+    # Personal chat
     path('messages/<str:user_email>/', PersonalChatHistoryView.as_view(), name='personal-chat-history'),
     
-    # Get group chat history
+    # Group/Guild chat
     path('group/<str:group_name>/messages/', GroupChatHistoryView.as_view(), name='group-chat-history'),
     
-    # Get list of all users (for contacts list)
+    # Users list
     path('users/', UserListView.as_view(), name='user-list'),
+    
+    # Guild management
+    path('guilds/', GuildListView.as_view(), name='guild-list'),  # GET: list all, POST: create
+    path('guilds/<int:guild_id>/', GuildDetailView.as_view(), name='guild-detail'),  # GET: guild details
+    path('guilds/<int:guild_id>/join/', GuildJoinView.as_view(), name='guild-join'),  # POST: join guild
+    path('guilds/<int:guild_id>/leave/', GuildLeaveView.as_view(), name='guild-leave'),  # POST: leave guild
+    path('guilds/my-guild/', MyGuildView.as_view(), name='my-guild'),  # GET: current user's guild
 ]

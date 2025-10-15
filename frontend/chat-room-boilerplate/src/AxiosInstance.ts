@@ -32,7 +32,7 @@ const AxiosInstance = axios.create({
 });
 
 
-
+// to check for access token --> like after request when the response from the server comes we intercept the response and check if the token is expired or not, if the server says the access token is invalid then we use the refresh token to get the access token by doing a post at the endpoint /refresh
 AxiosInstance.interceptors.response.use(response => response,
   async (error) => {
     const originalRequest = error.config;
@@ -41,6 +41,8 @@ AxiosInstance.interceptors.response.use(response => response,
       originalRequest._retry = true;
       try {
         await AxiosInstance.post("/accounts/refresh");
+
+        // This is the code to Retry original request
         return AxiosInstance(originalRequest);
       } catch (refreshError) {
         console.error("Token refresh failed, ${refreshError}");

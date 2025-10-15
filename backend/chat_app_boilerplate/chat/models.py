@@ -1,25 +1,42 @@
 from django.db import models
-
 from django.contrib.auth import get_user_model
+
+from django.core.exceptions import ValidationError
 
 User = get_user_model()
 
 
 class Chat_Group(models.Model):
     name = models.CharField(max_length=255, unique=True)
+    description = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_groups')
     members = models.ManyToManyField(User, related_name="chat_groups", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    max_members = models.IntegerField(default=15)
 
     def add_member(self, user):
-        """Restrict to max 15 members"""
-        if self.members.count() >= 15:
-            raise ValueError("Group is full. Max 15 members allowed.")
+        """Add a member to the guild with validation"""
+        # Check if user is already in another guild
+        existing_guilds = Chat_Group.objects.filter(members=user)
+        if existing_guilds.exists():
+            raise ValidationError(f"User {user.email} is already in guild: {existing_guilds.first().name}")
+        
+        # Check if guild is full
+        if self.members.count() >= self.max_members:
+            raise ValidationError(f"Guild is full. Maximum {self.max_members} members allowed.")
+        
         self.members.add(user)
 
+    def remove_member(self, user):
+        """Remove a member from the guild"""
+        self.members.remove(user)
+
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.members.count()}/{self.max_members} members)"
 
 
+# this is the schema of every message of personal chat
+# TODO add end to end encryption
 class PersonalChat(models.Model):
     sender = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sent_messages")
     receiver = models.ForeignKey(User, on_delete=models.CASCADE, related_name="received_messages")
