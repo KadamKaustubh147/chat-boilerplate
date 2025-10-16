@@ -133,8 +133,9 @@ class GuildListView(APIView):
         
         data = []
         for guild in guilds:
-            member_count = guild.members.count()
-            is_member = guild.members.filter(id=request.user.id).exists()
+            # accessing foreign key
+            member_count = guild.group_members.count()
+            is_member = guild.group_members.filter(id=request.user.id).exists()
             
             guild_info = {
                 "id": guild.id,
@@ -160,7 +161,7 @@ class GuildListView(APIView):
             return Response({"error": "Guild name is required"}, status=status.HTTP_400_BAD_REQUEST)
         
         # Check if user is already in a guild
-        existing_guilds = Chat_Group.objects.filter(members=request.user)
+        existing_guilds = Chat_Group.objects.filter(group_members=request.user)
         if existing_guilds.exists():
             return Response({
                 "error": f"You are already in guild: {existing_guilds.first().name}. Leave it first to create a new one."
@@ -178,7 +179,7 @@ class GuildListView(APIView):
         )
         
         # Add creator as first member
-        guild.members.add(request.user)
+        guild.group_members.add(request.user)
         
         return Response({
             "message": "Guild created successfully",
@@ -206,15 +207,15 @@ class GuildDetailView(APIView):
             "id": member.id,
             "email": member.email,
             "name": member.name,
-        } for member in guild.members.all()]
+        } for member in guild.group_member.all()]
         
         return Response({
             "id": guild.id,
             "name": guild.name,
             "description": guild.description,
-            "memberCount": guild.members.count(),
+            "memberCount": guild.group_members.count(),
             "maxMembers": guild.max_members,
-            "isMember": guild.members.filter(id=request.user.id).exists(),
+            "isMember": guild.group_members.filter(id=request.user.id).exists(),
             "createdBy": guild.created_by.name if guild.created_by else "Unknown",
             "members": members,
         })
@@ -231,7 +232,7 @@ class GuildJoinView(APIView):
             return Response({"error": "Guild not found"}, status=404)
         
         # Check if already a member
-        if guild.members.filter(id=request.user.id).exists():
+        if guild.group_members.filter(id=request.user.id).exists():
             return Response({"error": "You are already a member of this guild"}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
@@ -241,7 +242,7 @@ class GuildJoinView(APIView):
                 "guild": {
                     "id": guild.id,
                     "name": guild.name,
-                    "memberCount": guild.members.count(),
+                    "memberCount": guild.group_members.count(),
                 }
             })
         except ValidationError as e:
@@ -259,13 +260,13 @@ class GuildLeaveView(APIView):
             return Response({"error": "Guild not found"}, status=404)
         
         # Check if user is a member
-        if not guild.members.filter(id=request.user.id).exists():
+        if not guild.group_members.filter(id=request.user.id).exists():
             return Response({"error": "You are not a member of this guild"}, status=status.HTTP_400_BAD_REQUEST)
         
         guild.remove_member(request.user)
         
         # If no members left, delete the guild
-        if guild.members.count() == 0:
+        if guild.group_members.count() == 0:
             guild_name = guild.name
             guild.delete()
             return Response({"message": f"You left {guild_name}. Guild was deleted as it had no members."})
@@ -275,7 +276,7 @@ class GuildLeaveView(APIView):
             "guild": {
                 "id": guild.id,
                 "name": guild.name,
-                "memberCount": guild.members.count(),
+                "memberCount": guild.group_members.count(),
             }
         })
 
@@ -285,7 +286,7 @@ class MyGuildView(APIView):
 
     def get(self, request):
         """Get the guild current user is in"""
-        guilds = Chat_Group.objects.filter(members=request.user)
+        guilds = Chat_Group.objects.filter(group_members=request.user)
         
         if not guilds.exists():
             return Response({"guild": None, "message": "You are not in any guild"})
@@ -295,14 +296,14 @@ class MyGuildView(APIView):
             "id": member.id,
             "email": member.email,
             "name": member.name,
-        } for member in guild.members.all()]
+        } for member in guild.group_members.all()]
         
         return Response({
             "guild": {
                 "id": guild.id,
                 "name": guild.name,
                 "description": guild.description,
-                "memberCount": guild.members.count(),
+                "memberCount": guild.group_members.count(),
                 "maxMembers": guild.max_members,
                 "createdBy": guild.created_by.name if guild.created_by else "Unknown",
                 "members": members,

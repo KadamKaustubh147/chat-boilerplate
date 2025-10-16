@@ -9,8 +9,11 @@ User = get_user_model()
 class Chat_Group(models.Model):
     name = models.CharField(max_length=255, unique=True)
     description = models.TextField(blank=True, null=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_groups')
-    members = models.ManyToManyField(User, related_name="chat_groups", blank=True)
+    # related names meaning --> user model mei aisa dekhega --> created_group karke refer karenge
+    # this should be on the user model
+    created_by = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, related_name='created_group')
+    # many users 
+    # members = models.ForeignKey(User, related_name="chat_groups", blank=True, on_delete=models.DO_NOTHING)
     created_at = models.DateTimeField(auto_now_add=True)
     max_members = models.IntegerField(default=15)
 

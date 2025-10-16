@@ -12,6 +12,8 @@ from django.contrib.auth.models import (
 
 # Custom User model needs to contain only auth stuff, extra profile data should be handled by a different model with foreign key attached to the user model
 
+# ! don't do this causes circular import
+# from chat.models import Chat_Group
 
 
 class CustomUserManager(BaseUserManager):
@@ -22,6 +24,7 @@ class CustomUserManager(BaseUserManager):
             email = self.normalize_email(email)
             user = self.model(email=email, **extra_fields)
             user.set_password(password)
+            user.save(using=self._db)
             return user
 
     def create_superuser(self, email, password=None, **extra_fields):
@@ -41,8 +44,9 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     name = models.CharField()
     is_staff = models.BooleanField(default=False)
-    is_active = models.BooleanField(default=False)  # ✅ Add this!
+    is_active = models.BooleanField(default=False) 
 
+    guild = models.ForeignKey('chat.Chat_Group', on_delete=models.SET_NULL, null=True,related_name='group_members')
     date_joined = models.DateTimeField(auto_now_add=True)
 
     objects = CustomUserManager()
